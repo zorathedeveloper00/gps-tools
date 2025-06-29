@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>📡 Advanced GPS & Fake Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+background-image: url('https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSFVOZ2CsKQIPT0Lk06f5bNALaBIuEhMWppBg&s'); 
+    }
+    header {
+background: rgba(0,0,0,0.5);
+      color: red;
+      padding: 1rem;
+      text-align: center;
+      font-size: 1.3rem;
+    }
+    #status, #heading {
+      text-align: center;
+      padding: 0.5rem;
+background: rgba(0,0,0,0.5);
+      font-size: 0.95rem;
+    }
+    #controls {
+      text-align: center;
+      margin: 10px;
+    }
+    input, button {
+      padding: 8px;
+      font-size: 1rem;
+      margin: 5px;
+      border-radius: 4px;
+      border: 1px solid red;
+background: rgba(0,0,0,0.5);
+    }
+    button {
+      background: red;
+      color: green;
+      border: none;
+    }
+    button:hover {
+background: rgba(0,0,0,0.5);
+    }
+    #map {
+      width: 100%;
+      height: calc(100vh - 260px);
+    }
+    div {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+
+<header>📡 Real + Fake GPS Tracker + 🧭 Compass + 📍 Search + 🗺️ Routing</header>
+<div id="status">Waiting for GPS data...</div>
+<div id="heading">🧭 Heading: N/A</div>
+<div id="controls">
+  <button onclick="toggleFakeGPS()">🔁 Toggle Fake GPS</button>
+  <span id="mode">Mode: Real GPS</span><br/>
+  <input type="text" id="searchInput" placeholder="🔍 Search place...">
+  <button onclick="searchPlace()">Go</button>
+</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+  let map = L.map('map').setView([0, 0], 2);
+  let marker, circle, fakeMarker, routeLine;
+  let fakeMode = false;
+  let gpsWatcher = null;
+  let realLocation = null;
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '© OpenStreetMap contributors'
+  }).addTo(map);
+
+  function updateStatus(lat, lng, accuracy = 0, label = "📍 Location") {
+    document.getElementById('status').textContent = `${label}: Lat ${lat.toFixed(6)}, Lng ${lng.toFixed(6)} ${accuracy ? `(±${accuracy.toFixed(1)}m)` : ''}`;
+
+    if (!fakeMode) realLocation = [lat, lng];
+
+    if (marker) {
+      marker.setLatLng([lat, lng]);
+      circle.setLatLng([lat, lng]).setRadius(accuracy || 30);
+    } else {
+      marker = L.marker([lat, lng]).addTo(map).bindPopup(label).openPopup();
+      circle = L.circle([lat, lng], {
+        radius: accuracy || 30,
+        color: '#3498db',
+        fillColor: '#3498db',
+        fillOpacity: 0.3
+      }).addTo(map);
+    }
+
+    map.setView([lat, lng], 16);
+  }
+
+  function toggleFakeGPS() {
+    fakeMode = !fakeMode;
+    document.getElementById("mode").textContent = "Mode: " + (fakeMode ? "Fake GPS (Click map)" : "Real GPS");
+    document.getElementById("status").textContent = fakeMode ? "🖱 Click map to fake your location" : "📡 Resuming real GPS";
+    if (!fakeMode) startRealGPS();
+  }
+
+  map.on('click', function(e) {
+    if (fakeMode) {
+      const lat = e.latlng.lat;
+      const lng = e.latlng.lng;
+
+      updateStatus(lat, lng, 0, "🎭 Fake Location");
+
+      if (fakeMarker) {
+        fakeMarker.setLatLng([lat, lng]);
+      } else {
+        fakeMarker = L.marker([lat, lng], { draggable: true }).addTo(map).bindPopup("🎭 Fake Location").openPopup();
+      }
+
+      // Treat the fake location as default now
+      realLocation = [lat, lng];
+
+      drawRoute(realLocation, [lat, lng]);
+    }
+  });
+
+  function drawRoute(from, to) {
+    if (routeLine) map.removeLayer(routeLine);
+    if (from && to) {
+      routeLine = L.polyline([from, to], { color: "red", dashArray: "5,10" }).addTo(map);
+    }
+  }
+
+  function startRealGPS() {
+    if ('geolocation' in navigator) {
+      gpsWatcher = navigator.geolocation.watchPosition(
+        pos => {
+          if (!fakeMode) {
+            updateStatus(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+          }
+        },
+        err => {
+          document.getElementById('status').textContent = '❌ Error: ' + err.message;
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    } else {
+      document.getElementById('status').textContent = '❌ Geolocation not supported.';
+    }
+  }
+
+  function searchPlace() {
+    const query = document.getElementById('searchInput').value;
+    if (!query) return alert("Enter a place to search.");
+    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`)
+      .then(res => res.json())
+      .then(results => {
+        if (results.length === 0) return alert("Place not found.");
+        const result = results[0];
+        const lat = parseFloat(result.lat);
+        const lon = parseFloat(result.lon);
+        map.setView([lat, lon], 16);
+        L.marker([lat, lon]).addTo(map).bindPopup(`🔍 ${result.display_name}`).openPopup();
+      })
+      .catch(err => {
+        alert("Search failed.");
+        console.error(err);
+      });
+  }
+
+  // Compass heading
+  function getCompassDirection(deg) {
+    const directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW", "N"];
+    return directions[Math.round(deg / 45) % 8];
+  }
+
+  if (window.DeviceOrientationEvent) {
+    window.addEventListener(
+      'deviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation',
+      function(event) {
+        let heading = event.webkitCompassHeading || (360 - event.alpha);
+        if (heading != null && !isNaN(heading)) {
+          const dir = getCompassDirection(heading);
+          document.getElementById('heading').textContent = `🧭 Heading: ${heading.toFixed(1)}° (${dir})`;
+        }
+      },
+      true
+    );
+  } else {
+    document.getElementById('heading').textContent = "🧭 Compass not supported.";
+  }
+
+  startRealGPS();
+</script>
+
+</body>
+</html>
